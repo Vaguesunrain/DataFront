@@ -1,0 +1,73 @@
+#!/bin/bash
+
+# =============================================================================
+#           Verilator 自动化编译与运行脚本 (支持子目录结构)
+# =============================================================================
+
+echo "===== [ Step 1: Parsing files.f to find Top Module ] ====="
+
+# --- 自动从 files.f 查找顶层Verilog文件和模块名 ---
+# 约定：files.f 中最后一个 .v 或 .sv 文件被视为顶层文件
+TOP_FILE=$(grep -E '\.v$|\.sv$' files.f | tail -n 1)
+
+# 检查是否找到了Verilog文件
+if [ -z "$TOP_FILE" ]; then
+    echo "Error: No .v or .sv file found in files.f. Exiting."
+    exit 1
+fi
+
+# 从文件路径中提取模块名 (例如从 'module/counter.v' 提取出 'counter')
+TOP_MODULE=$(basename ${TOP_FILE} | sed -E 's/\.v$|\.sv$//')
+
+echo "  -> Top Verilog file detected: $TOP_FILE"
+echo "  -> Top module name assumed:   $TOP_MODULE"
+echo ""
+
+
+echo "===== [ Step 2: Running Verilator ] ====="
+
+# --- 清理上一次的编译结果 ---
+rm -rf obj_dir
+
+# --- 运行Verilator ---
+# --cc: 生成C++代码
+# --trace: 使能波形VCD/FST生成
+# -exe: 生成可执行文件
+# -f files.f: 从文件列表读取源文件
+# -I<dir>: 添加头文件搜索路径 (这是处理子目录的关键！)
+# --top-module: 指定顶层模块
+# --build: 自动调用make进行编译和链接
+verilator --cc --trace -exe -f files.f \
+          -Icpp_tb_test \
+          -Imodule \
+          --top-module ${TOP_MODULE} --build
+
+# 检查Verilator和编译是否成功
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "Error: Verilation or C++ compilation failed. Exiting."
+    exit 1
+fi
+
+echo "  -> Verilation and compilation successful."
+echo ""
+
+
+echo "===== [ Step 3: Running Simulation ] ====="
+
+# --- 运行生成的可执行文件 ---
+# 可执行文件位于obj_dir/V<top_module_name>
+./obj_dir/V${TOP_MODULE}
+
+if [ $? -eq 0 ]; then
+    echo ""
+    echo "===== [ Simulation Finished Successfully ] ====="
+    # 检查波形文件是否生成
+    if [ -f "waveform.vcd" ]; then
+        echo "  -> Waveform file 'waveform.vcd' generated."
+    fi
+else
+    echo ""
+    echo "===== [ Simulation Failed ] ====="
+fi
+
